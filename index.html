@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXCORE - AI System Orchestrator</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js & Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#02050A',
+                            cyan: '#00F5FF',
+                            cyan_dim: 'rgba(0, 245, 255, 0.2)',
+                            red: '#FF003C',
+                            green: '#00FF41',
+                            panel: 'rgba(5, 10, 20, 0.65)'
+                        }
+                    },
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #02050A;
+            color: #00F5FF;
+            /* Changed to allow vertical scrolling while hiding horizontal scroll */
+            overflow-x: hidden;
+            overflow-y: auto; 
+            background-image: 
+                linear-gradient(rgba(0, 245, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 245, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        .hud-panel {
+            background: var(--brand-panel, rgba(5, 10, 20, 0.65));
+            border: 1px solid rgba(0, 245, 255, 0.3);
+            box-shadow: inset 0 0 20px rgba(0, 245, 255, 0.05);
+            backdrop-filter: blur(8px);
+            position: relative;
+            clip-path: polygon(0 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%);
+        }
+
+        .hud-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 20px; height: 2px;
+            background: #00F5FF;
+            box-shadow: 0 0 10px #00F5FF;
+        }
+
+        .neon-text {
+            text-shadow: 0 0 5px rgba(0, 245, 255, 0.5), 0 0 15px rgba(0, 245, 255, 0.3);
+        }
+        
+        .neon-text-red {
+            color: #FF003C;
+            text-shadow: 0 0 5px rgba(255, 0, 60, 0.5), 0 0 15px rgba(255, 0, 60, 0.3);
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 0, 0, 0.2) 50%, rgba(0, 0, 0, 0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.3;
+        }
+
+        /* Glitch Animation for header */
+        @keyframes glitch {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 1px) }
+            40% { transform: translate(-1px, -1px) }
+            60% { transform: translate(2px, 1px) }
+            80% { transform: translate(1px, -1px) }
+            100% { transform: translate(0) }
+        }
+        .glitch:hover {
+            animation: glitch 0.2s linear infinite;
+        }
+
+        /* Custom Scrollbar for terminal & body */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 245, 255, 0.05); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 245, 255, 0.4); border-radius: 3px; }
+
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        #canvas-container {
+            position: fixed; /* Changed to fixed so background stays during scroll */
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .blink {
+            animation: blinker 1.5s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<!-- Changed h-screen to min-h-screen to allow content expansion -->
+<body class="font-orbitron tracking-wider text-sm flex flex-col min-h-screen">
+
+    <div class="scanlines"></div>
+    <div id="canvas-container"></div>
+
+    <!-- MAIN UI OVERLAY -->
+    <!-- Changed h-full to min-h-screen -->
+    <div class="relative z-10 flex flex-col min-h-screen w-full p-6 pointer-events-none">
+        
+        <!-- HEADER -->
+        <header class="flex justify-between items-start mb-6 pointer-events-auto flex-wrap gap-4">
+            <div class="flex items-center gap-4">
+                <div class="h-12 w-12 border-2 border-brand-cyan rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(0,245,255,0.5)]">
+                    <div class="h-6 w-6 bg-brand-cyan rounded-full animate-pulse"></div>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-black tracking-[0.2em] neon-text glitch">NEXCORE</h1>
+                    <p class="text-xs font-mono text-brand-cyan opacity-80">AI-POWERED ECOSYSTEM :: <span class="text-brand-green blink">ONLINE</span></p>
+                </div>
+            </div>
+            
+            <div class="flex gap-6 text-right">
+                <div class="hud-panel px-4 py-2 flex flex-col items-end">
+                    <span class="text-[10px] text-gray-400">UPTIME</span>
+                    <span id="uptime" class="font-mono text-lg text-brand-cyan">00:00:00:00</span>
+                </div>
+                <div class="hud-panel px-4 py-2 flex flex-col items-end">
+                    <span class="text-[10px] text-gray-400">GLOBAL THREAT LEVEL</span>
+                    <span id="threat-level" class="font-bold text-lg text-brand-green">ELEVATED</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- DASHBOARD GRID -->
+        <!-- Added better responsive classes for smaller screens -->
+        <main class="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 pointer-events-none pb-10">
+            
+            <!-- LEFT PANEL: METRICS -->
+            <div class="col-span-1 md:col-span-3 flex flex-col gap-6 pointer-events-auto">
+                <!-- System Monitor -->
+                <div class="hud-panel p-5 flex flex-col h-auto">
+                    <h2 class="text-xs text-gray-400 mb-4 border-b border-brand-cyan_dim pb-2">// SYSTEM.MONITOR_C</h2>
+                    
+                    <div class="flex justify-around items-center mb-6">
+                        <!-- CPU Ring -->
+                        <div class="relative w-24 h-24">
+                            <svg class="w-full h-full" viewBox="0 0 100 100">
+                                <circle class="text-gray-800 stroke-current" stroke-width="6" cx="50" cy="50" r="40" fill="transparent"></circle>
+                                <circle id="cpu-ring" class="text-brand-cyan stroke-current progress-ring__circle" stroke-width="6" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <span id="cpu-val" class="font-mono text-lg font-bold">0%</span>
+                                <span class="text-[9px] text-gray-400">CPU</span>
+                            </div>
+                        </div>
+
+                        <!-- RAM Ring -->
+                        <div class="relative w-24 h-24">
+                            <svg class="w-full h-full" viewBox="0 0 100 100">
+                                <circle class="text-gray-800 stroke-current" stroke-width="6" cx="50" cy="50" r="40" fill="transparent"></circle>
+                                <circle id="ram-ring" class="text-brand-cyan stroke-current progress-ring__circle" stroke-width="6" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <span id="ram-val" class="font-mono text-lg font-bold">0%</span>
+                                <span class="text-[9px] text-gray-400">RAM</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Process List -->
+                    <div class="font-mono text-[10px]">
+                        <div class="grid grid-cols-4 text-brand-cyan opacity-60 mb-2">
+                            <span>PID</span>
+                            <span class="col-span-2">PROCESS</span>
+                            <span class="text-right">MEM</span>
+                        </div>
+                        <div id="process-list" class="space-y-1">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Brain -->
+                <div class="hud-panel p-5 flex-1 flex flex-col">
+                    <h2 class="text-xs text-gray-400 mb-4 border-b border-brand-cyan_dim pb-2">// AI_BRAIN.PREDICTOR</h2>
+                    <div class="flex-1 flex flex-col justify-center gap-4 font-mono text-xs">
+                        <div class="flex justify-between items-center">
+                            <span>ANOMALY_SCORE</span>
+                            <span id="ai-anomaly" class="text-brand-green">[ 0.012 ]</span>
+                        </div>
+                        <div class="w-full bg-gray-900 h-2 mt-1 rounded overflow-hidden">
+                            <div id="ai-anomaly-bar" class="bg-brand-green h-full" style="width: 12%;"></div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <span class="text-gray-400 text-[10px]">PREDICTIVE_FAILURE_FORECAST</span>
+                            <p class="text-brand-cyan mt-1">> Resource saturation expected in: <span class="font-bold">47h 12m</span></p>
+                        </div>
+
+                        <div class="mt-2 p-3 bg-[rgba(0,255,65,0.05)] border border-[rgba(0,255,65,0.2)]">
+                            <div class="flex justify-between">
+                                <span class="text-[10px] text-gray-400">RL_AGENT.POLICY</span>
+                                <span class="text-brand-green text-[10px]">OPTIMIZING</span>
+                            </div>
+                            <p class="mt-1 opacity-80">Action: Load rebalanced across Node_Alpha and Node_Beta.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER PANEL: HOLOGRAM RETICLE -->
+            <div class="col-span-1 md:col-span-6 flex items-center justify-center relative min-h-[400px]">
+                <!-- Decorative HUD overlay for the 3D globe -->
+                <div class="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+                    <svg width="400" height="400" viewBox="0 0 400 400" fill="none">
+                        <circle cx="200" cy="200" r="180" stroke="#00F5FF" stroke-width="1" stroke-dasharray="4 8"/>
+                        <circle cx="200" cy="200" r="150" stroke="#00F5FF" stroke-width="1" stroke-dasharray="1 10"/>
+                        <path d="M 200 0 L 200 40" stroke="#00F5FF" stroke-width="2"/>
+                        <path d="M 200 360 L 200 400" stroke="#00F5FF" stroke-width="2"/>
+                        <path d="M 0 200 L 40 200" stroke="#00F5FF" stroke-width="2"/>
+                        <path d="M 360 200 L 400 200" stroke="#00F5FF" stroke-width="2"/>
+                    </svg>
+                </div>
+                <div class="absolute bottom-10 px-6 py-2 border border-brand-cyan bg-[rgba(0,245,255,0.1)] backdrop-blur-md">
+                    <p class="text-[10px] tracking-widest font-mono text-center">DSA_ENGINE::TOPOLOGY_ACTIVE</p>
+                    <p class="text-xs text-center mt-1"><span class="animate-pulse">●</span> TARGET LOCK: UNIDENTIFIED SIGNATURE</p>
+                </div>
+            </div>
+
+            <!-- RIGHT PANEL: NETWORK & DEFENSE -->
+            <div class="col-span-1 md:col-span-3 flex flex-col gap-6 pointer-events-auto">
+                
+                <!-- Cloud Bridge & Network -->
+                <div class="hud-panel p-5">
+                    <h2 class="text-xs text-gray-400 mb-4 border-b border-brand-cyan_dim pb-2 flex justify-between">
+                        // CLOUD_BRIDGE.PY
+                        <span class="text-brand-green">SYNCED</span>
+                    </h2>
+                    <div class="h-32 w-full relative">
+                        <canvas id="networkChart"></canvas>
+                    </div>
+                    <div class="flex justify-between mt-4 font-mono text-[10px]">
+                        <div>
+                            <span class="text-gray-400">NET_IN</span>
+                            <div class="text-brand-cyan text-sm"><span id="net-in">1.4</span> GB/s</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-gray-400">NET_OUT</span>
+                            <div class="text-brand-cyan text-sm"><span id="net-out">0.8</span> GB/s</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cyber Defense Terminal -->
+                <div class="hud-panel p-5 flex-1 flex flex-col min-h-[300px]">
+                    <h2 class="text-xs text-gray-400 mb-4 border-b border-[rgba(255,0,60,0.3)] pb-2 flex justify-between">
+                        // CYBER_DEFENSE.C
+                        <span class="text-brand-red blink">LIVE FEED</span>
+                    </h2>
+                    <div id="terminal" class="flex-1 font-mono text-[10px] overflow-y-auto space-y-2 pr-2">
+                        <div class="text-gray-500">Initializing Packet Capture Engine (AF_PACKET)... OK</div>
+                        <div class="text-gray-500">Loading Intrusion Signatures (Aho-Corasick)... OK</div>
+                        <div class="text-gray-500">System secure. Awaiting events...</div>
+                    </div>
+                    <div class="mt-4 pt-2 border-t border-brand-cyan_dim flex">
+                        <span class="text-brand-cyan mr-2">></span>
+                        <input type="text" class="bg-transparent border-none outline-none w-full font-mono text-xs text-brand-cyan placeholder-gray-600" placeholder="Enter override command...">
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- THREE.JS Logic -->
+    <script>
+        // Hologram Globe Setup
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Adjust camera to put globe slightly lower or centered
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 5;
+
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        // Holographic Sphere Group
+        const hologramGroup = new THREE.Group();
+        scene.add(hologramGroup);
+
+        // Core Solid (Inner)
+        const coreGeometry = new THREE.IcosahedronGeometry(1.5, 4);
+        const coreMaterial = new THREE.MeshPhongMaterial({
+            color: 0x02050A,
+            emissive: 0x002233,
+            shininess: 100,
+            transparent: true,
+            opacity: 0.9,
+            flatShading: true
+        });
+        const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
+        hologramGroup.add(coreMesh);
+
+        // Wireframe (Outer)
+        const wireGeometry = new THREE.IcosahedronGeometry(1.52, 2);
+        const wireMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00F5FF,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.2,
+            blending: THREE.AdditiveBlending
+        });
+        const wireMesh = new THREE.Mesh(wireGeometry, wireMaterial);
+        hologramGroup.add(wireMesh);
+
+        // Data Rings
+        const createRing = (radius, tiltX, tiltY) => {
+            const ringGeo = new THREE.TorusGeometry(radius, 0.005, 16, 100);
+            const ringMat = new THREE.MeshBasicMaterial({ 
+                color: 0x00F5FF, 
+                transparent: true, 
+                opacity: 0.4,
+                blending: THREE.AdditiveBlending
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = tiltX;
+            ring.rotation.y = tiltY;
+            return ring;
+        };
+
+        const ring1 = createRing(1.8, Math.PI/3, Math.PI/4);
+        const ring2 = createRing(2.1, -Math.PI/4, Math.PI/2);
+        hologramGroup.add(ring1);
+        hologramGroup.add(ring2);
+
+        // Floating Data Particles
+        const particleGeo = new THREE.BufferGeometry();
+        const particleCount = 200;
+        const posArray = new Float32Array(particleCount * 3);
+        
+        for(let i=0; i < particleCount * 3; i+=3) {
+            // Spherical distribution
+            const r = 2.5 + Math.random() * 1.5;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            
+            posArray[i] = r * Math.sin(phi) * Math.cos(theta);
+            posArray[i+1] = r * Math.sin(phi) * Math.sin(theta);
+            posArray[i+2] = r * Math.cos(phi);
+        }
+        
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const particleMat = new THREE.PointsMaterial({
+            size: 0.02,
+            color: 0x00F5FF,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending
+        });
+        
+        const particleMesh = new THREE.Points(particleGeo, particleMat);
+        scene.add(particleMesh);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+        scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0x00F5FF, 2, 10);
+        pointLight.position.set(2, 2, 2);
+        scene.add(pointLight);
+
+        // Mouse interaction logic (parallax)
+        let mouseX = 0;
+        let mouseY = 0;
+        const windowHalfX = window.innerWidth / 2;
+        const windowHalfY = window.innerHeight / 2;
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX - windowHalfX) * 0.001;
+            mouseY = (event.clientY - windowHalfY) * 0.001;
+        });
+
+        // Animation Loop
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+
+            // Rotations
+            coreMesh.rotation.y += 0.002;
+            wireMesh.rotation.y += 0.003;
+            wireMesh.rotation.x += 0.001;
+            
+            ring1.rotation.z += 0.005;
+            ring2.rotation.z -= 0.003;
+
+            particleMesh.rotation.y = time * 0.05;
+
+            // Parallax target smoothing
+            hologramGroup.position.x += (mouseX - hologramGroup.position.x) * 0.05;
+            hologramGroup.position.y += (-mouseY - hologramGroup.position.y) * 0.05;
+
+            renderer.render(scene, camera);
+        }
+        
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start 3D
+        window.onload = animate;
+
+    </script>
+
+    <!-- DASHBOARD LOGIC (Mock Data Simulation) -->
+    <script>
+        // --- Utilities ---
+        const setProgress = (id, percent) => {
+            const circle = document.getElementById(id);
+            const radius = circle.r.baseVal.value;
+            const circumference = radius * 2 * Math.PI;
+            const offset = circumference - (percent / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
+            
+            // Color changing based on load
+            if(percent > 85) {
+                circle.classList.remove('text-brand-cyan', 'text-brand-green');
+                circle.classList.add('text-brand-red');
+            } else {
+                circle.classList.remove('text-brand-red');
+                circle.classList.add('text-brand-cyan');
+            }
+        };
+
+        const randomRange = (min, max) => (Math.random() * (max - min) + min).toFixed(1);
+
+        // --- Uptime Clock ---
+        let startTime = Date.now() - (1000 * 60 * 60 * 24 * 3); // Started 3 days ago
+        setInterval(() => {
+            let diff = Math.floor((Date.now() - startTime) / 1000);
+            let d = Math.floor(diff / (24 * 3600));
+            diff = diff % (24 * 3600);
+            let h = Math.floor(diff / 3600);
+            diff %= 3600;
+            let m = Math.floor(diff / 60);
+            let s = diff % 60;
+            document.getElementById('uptime').innerText = 
+                `${d.toString().padStart(2, '0')}:${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }, 1000);
+
+        // --- System Metrics Simulator (CPU/RAM/Processes) ---
+        const processes = [
+            { name: 'nexcore_monitor', mem: '14.2M' },
+            { name: 'dsa_engine_v2', mem: '1.2G' },
+            { name: 'python_ai_brain', mem: '4.8G' },
+            { name: 'kthreadd', mem: '0.0M' },
+            { name: 'java_orchestrator', mem: '2.1G' }
+        ];
+
+        setInterval(() => {
+            // CPU & RAM Updates
+            const cpu = randomRange(30, 95);
+            const ram = randomRange(40, 88);
+            
+            document.getElementById('cpu-val').innerText = `${Math.round(cpu)}%`;
+            document.getElementById('ram-val').innerText = `${Math.round(ram)}%`;
+            
+            setProgress('cpu-ring', cpu);
+            setProgress('ram-ring', ram);
+
+            // AI Anomaly Score
+            let anomaly = (Math.random() * 0.05).toFixed(3);
+            let threatLevel = 'NOMINAL';
+            let threatColor = 'text-brand-green';
+
+            if (cpu > 85) {
+                anomaly = (0.7 + Math.random() * 0.2).toFixed(3);
+                threatLevel = 'CRITICAL';
+                threatColor = 'text-brand-red';
+            } else if (cpu > 70) {
+                anomaly = (0.2 + Math.random() * 0.3).toFixed(3);
+                threatLevel = 'ELEVATED';
+                threatColor = 'text-yellow-400';
+            }
+
+            const anomalyEl = document.getElementById('ai-anomaly');
+            anomalyEl.innerText = `[ ${anomaly} ]`;
+            anomalyEl.className = threatColor;
+            
+            const anomalyBar = document.getElementById('ai-anomaly-bar');
+            anomalyBar.style.width = `${anomaly * 100}%`;
+            anomalyBar.className = `h-full ${threatColor.replace('text-', 'bg-')}`;
+
+            const globalThreat = document.getElementById('threat-level');
+            globalThreat.innerText = threatLevel;
+            globalThreat.className = `font-bold text-lg ${threatColor}`;
+
+            // Process List Update
+            const processHtml = processes.map(p => {
+                const pid = Math.floor(Math.random() * 9000) + 1000;
+                return `
+                    <div class="grid grid-cols-4 border-b border-[rgba(0,245,255,0.1)] pb-1">
+                        <span class="text-gray-400">${pid}</span>
+                        <span class="col-span-2 truncate">${p.name}</span>
+                        <span class="text-right text-brand-cyan">${p.mem}</span>
+                    </div>`;
+            }).join('');
+            document.getElementById('process-list').innerHTML = processHtml;
+
+        }, 2000);
+
+        // --- Network Traffic Chart (Chart.js) ---
+        const ctx = document.getElementById('networkChart').getContext('2d');
+        const netChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [{
+                    label: 'Bandwidth (GB/s)',
+                    data: Array(20).fill(1),
+                    borderColor: '#00F5FF',
+                    backgroundColor: 'rgba(0, 245, 255, 0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        display: true, 
+                        min: 0, max: 5,
+                        grid: { color: 'rgba(0, 245, 255, 0.1)' },
+                        ticks: { color: '#4B5563', font: { family: 'JetBrains Mono', size: 9 } }
+                    }
+                }
+            }
+        });
+
+        setInterval(() => {
+            const inSpeed = randomRange(0.5, 4.5);
+            const outSpeed = randomRange(0.2, inSpeed - 0.1);
+            
+            document.getElementById('net-in').innerText = inSpeed;
+            document.getElementById('net-out').innerText = outSpeed;
+
+            netChart.data.datasets[0].data.push(inSpeed);
+            netChart.data.datasets[0].data.shift();
+            netChart.update();
+        }, 1000);
+
+        // --- Cyber Defense Terminal Simulator ---
+        const terminalLogs = [
+            "[AI_BRAIN] Isolation Forest anomaly_score=0.01",
+            "Scaling Event: CPU < 20%, triggering scale_in()",
+            "[DEFENSE] IP 192.168.1.104 passed signature check.",
+            "[ROUTER] Dijkstra optimal path recalculated (12ms)",
+            "CloudBridge: Incremental S3 backup success (SHA-256).",
+            "[WARN] Memory threshold approaching limit.",
+            "API_GATEWAY: Authorized JWT access from Admin Console."
+        ];
+
+        const threatLogs = [
+            "<span class='text-brand-red'>[ALERT] Port scan detected: >20 ports in 5s (IP: 45.33.22.1)</span>",
+            "<span class='text-brand-red'>[ACTION] auto_block_ip(45.33.22.1, 3600s) Executed.</span>",
+            "<span class='text-brand-red'>[CRITICAL] SYN flood anomaly! Traffic spiked by 400%.</span>",
+            "<span class='text-yellow-400'>[WARNING] Brute force SSH attempt (Rule ID: 8821).</span>"
+        ];
+
+        const terminal = document.getElementById('terminal');
+        
+        setInterval(() => {
+            const isThreat = Math.random() < 0.15; // 15% chance of threat log
+            const logArray = isThreat ? threatLogs : terminalLogs;
+            const logText = logArray[Math.floor(Math.random() * logArray.length)];
+            
+            const timestamp = new Date().toISOString().split('T')[1].slice(0,12);
+            
+            const newLog = document.createElement('div');
+            newLog.innerHTML = `<span class="text-gray-600">[${timestamp}]</span> ${logText}`;
+            
+            terminal.appendChild(newLog);
+            if (terminal.childElementCount > 50) terminal.removeChild(terminal.firstChild);
+            terminal.scrollTop = terminal.scrollHeight;
+        }, 1500);
+
+        // Initialize progress rings
+        setProgress('cpu-ring', 0);
+        setProgress('ram-ring', 0);
+    </script>
+</body>
+</html>
